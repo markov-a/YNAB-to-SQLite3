@@ -2,7 +2,7 @@
 
 ##What does it do?
 
-It converts .ynab budget folders into sqlite3 databases
+It converts YNAB4 .ynab budget folders into sqlite3 databases
 
 ##How does it work?
 
@@ -12,7 +12,7 @@ The JSON file processing is done in two steps: First it tries to figure out the 
 
 ##Will it work in every case?
 
-No. If the .yfull file doesn't contain the entire budget, it will not be able to do it.
+No. If the .yfull file doesn't contain the entire budget, it will not be able to do it. This will probably occur if you've been using YNAB4 on your mobile but didn't use it on your desktop. Opening the budget on your desktop will probably going to solve the issue.
 
 ##Compiling
 
