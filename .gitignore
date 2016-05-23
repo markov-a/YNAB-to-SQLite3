@@ -1,0 +1,9 @@
+# First, ignore everything
+*
+.*
+# And all the file types you're interested in.
+!*.cpp
+!*.hpp
+!*.md
+!*.gitignore
+!doxygen.conf

@@ -5,16 +5,13 @@ int YNABConvert::convert(string budget_directory, string sqlite3_db)
   try
   {
     session sql(sqlite3, sqlite3_db);
-    cout << "Searching for yfull budget on " << budget_directory << endl;
+
     auto filename=get_yfull_file(budget_directory).string();
-    cout << "Found file: " << filename << endl;
-    cout << "Error: " << last_error << endl;
     auto p=aux::load_json(filename);
 
     if(p==nullptr)
     {
-      cout << "Fatal error: Couldn't open json file on \"" << filename << "\"" << endl;
-      return 1;
+      throw YNABConvertException("Fatal error: Couldn't open json file on \"" + filename + "\"\n");
     }
 
     table_struct s;
@@ -25,8 +22,7 @@ int YNABConvert::convert(string budget_directory, string sqlite3_db)
   }
   catch (exception const &err)
   {
-      cerr << "Database exception on " << sqlite3_db << ":" << err.what();
-      return 1;
+      throw YNABConvertException("Database exception on " + sqlite3_db + ":" + err.what());
   }
 }
 
@@ -40,7 +36,7 @@ void YNABConvert::create_db_struct(table_struct &db, const ptree &p, const strin
     if (node_name!="")
       db[tbl_name].insert(node_name);
     else
-      cout << "this shouldn't happen" << endl;
+      throw YNABConvertInvalidBudgetException("Invalid YNAB4 Budget");
   }
   else
   {
@@ -78,9 +74,8 @@ void YNABConvert::create_tables_from_struct(soci::session &sql, const table_stru
     }
 
     cur_query[cur_query.length()-1]=')';
-    cur_query+="\n";
+    cur_query+='\n';
 
-    //cout << cur_query;
     sql << cur_query;
   }
 }
@@ -96,7 +91,7 @@ void YNABConvert::insert_from_node(
 
   statement st(sql);
 
-  string query= "INSERT INTO " + (table==""?"master":table) + "(";
+  string query="INSERT INTO " + (table==""?"master":table) + "(";
 
   bool first=true;
 
@@ -110,7 +105,7 @@ void YNABConvert::insert_from_node(
     }
   }
 
-  if(prev_table!="")
+  if(prev_table.size()!=0)
   {
     query += "," + prev_table + "_id";
   }
@@ -136,17 +131,14 @@ void YNABConvert::insert_from_node(
   }
 
   query += ");";
-  //cout << query << endl;
 
   for(auto it=p.begin();it!=p.end();++it)
   {
     if(it->second.begin()==it->second.end())
     {
       st.exchange(use(it->second.data()));
-      //cout << it->second.data() << " ";
     }
   }
-  //cout << endl;
 
   if(prev_table!="")
   {
@@ -176,25 +168,21 @@ inline sqlite_api::sqlite3_int64 YNABConvert::sqlite3_last_rowid(soci::session& 
 
 boost::filesystem::path YNABConvert::get_yfull_file(const boost::filesystem::path& budget_path)
 {
-    //1st step: Open Budget.ymeta
-
+  //1st step: Open Budget.ymeta
   auto cur_file=budget_path/"Budget.ymeta";
   if(!exists(cur_file))
   {
-    last_error= "Buget ymeta file doesn't exist (" + cur_file.string() + ")";
-    last_error_code=1;
-    return "";
+    throw YNABConvertInvalidBudgetException("Buget ymeta file doesn't exist: " + cur_file.string() + ")");
+    
   }
 
   auto tree=aux::load_json(cur_file.string());
   if(tree==nullptr)
   {
-    last_error = "Couldn't load budget json";
-    last_error_code=2;
-    return "";
+    throw YNABConvertException("Couldn't load JSON file");
   }
 
-  //Step two: Get the folder where the data is.
+  //2nd step: Get the folder where the data is.
   auto data_path=budget_path;
 
   for(auto it=tree->begin();it!=tree->end();++it)
@@ -204,21 +192,16 @@ boost::filesystem::path YNABConvert::get_yfull_file(const boost::filesystem::pat
 
   if(!exists(data_path))
   {
-    last_error= "data path doesn't exist";
-    last_error_code=3;
-    return "";
+    throw YNABConvertInvalidBudgetException("Budget data directory doesn't exist");
   }
 
-  //Step three: list every file in budget_path/devices
+  //3rd step: list every file in budget_path/devices
   auto tmp_path=data_path/"devices/";
   if(!exists(tmp_path)) 
   {
-    last_error= "devices path doesn't exist";
-    last_error_code=4;
-    return "";
+    throw YNABConvertInvalidBudgetException("Budget devices directory doesn't exist");
   }
   
-
   vector<ptree> devices;
 
   struct DeviceData
@@ -233,6 +216,7 @@ boost::filesystem::path YNABConvert::get_yfull_file(const boost::filesystem::pat
   
   vector<DeviceData> device_data;
 
+  //4th step: create a vector with the data of all the devices
   for(auto &e:directory_iterator(tmp_path))
   {
     if (is_regular_file(e) && extension(e)==".ydevice")
@@ -253,23 +237,27 @@ boost::filesystem::path YNABConvert::get_yfull_file(const boost::filesystem::pat
       }
       catch (exception &e)
       {
-        last_error = e.what();
-        last_error_code=5;
+        throw YNABConvertException(string("JSON error: ") + e.what()); 
       }
     }
   }
   
+  //5th step: Sort the devices according to the budget version and full budget version
   std::sort(device_data.begin(),device_data.end(),[](const DeviceData &l, const DeviceData &r) { return l.budget_version>r.budget_version;});
   std::stable_sort(device_data.begin(),device_data.end(),[](const DeviceData &l, const DeviceData &r) { return l.full_budget_file_version>r.full_budget_file_version;});
   
+  
   if(device_data.size()!=0)
-  { 
+  {
+    if(!device_data[0].has_full_knowledge)
+    {
+      throw YNABConvertException("Most up-to-date budget yfull file doesn't contain full knowledge");
+    } 
     return data_path/device_data[0].GUID/"Budget.yfull";
   }
   else
   {
-    last_error="no yfull budgets found";
-    last_error_code=6;
+    throw YNABConvertException("No yfull complete budget found");
   }
 }
 
