@@ -70,16 +70,18 @@ class YNABConvert
     
     /**
      Figures out the table structure from the property_tree created from the JSON file
-     @param db Table [out] structure of the database
-     @param p  Property tree with the JSON
-     @param node_name ???
-     @param table_name ???
+     @param db Table [in/out] structure of the database
+     @param p Property tree with the JSON
+     @param node_name Current node name
+     @param table_name Current table name
     */
     void create_db_struct(table_struct &db, const ptree &p, const string& node_name="", const string& table_name="");
 
 public:
     /**
-     Converts the fuckers
+     Main function that converts the YNAB4 budget into a SQLite3 database
+     @param budget_directory Directory with the budget (normally ends with .ynab4)
+     @param sqlite3_db Path to the new SQLite3 database
     */
     int convert(string budget_directory, string sqlite3_db);
 };
